@@ -206,6 +206,12 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
     }
   };
 
+  // MAD: an opened box puts the cursor after its text, so editing appends rather than prepends.
+  const moveCaretToEnd = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    const end = e.currentTarget.value.length;
+    e.currentTarget.setSelectionRange(end, end);
+  };
+
   // MAD: Return saves; Shift+Return still starts a new line in a tall box.
   const handleTextKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -371,6 +377,7 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
           onChange={handleTextChange}
           onKeyDown={handleInlineKeyDown}
           onBlur={() => finishInline(true)}
+          onFocus={moveCaretToEnd}
           autoFocus
         />
       )}
@@ -392,6 +399,7 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
               value={localText}
               onChange={handleTextChange}
               onKeyDown={handleTextKeyDown}
+              onFocus={moveCaretToEnd}
               autoFocus
             />
           </div>
