@@ -18,7 +18,7 @@ import { useToast } from '@documenso/ui/primitives/use-toast';
 import { msg } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
 import { Plural, Trans } from '@lingui/react/macro';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRevalidator } from 'react-router';
 
 import { useRequiredDocumentSigningAuthContext } from './document-signing-auth-provider';
@@ -82,6 +82,13 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
   const [localText, setLocalCustomText] = useState(parsedFieldMeta?.text ?? '');
   // MAD: clicking a filled box re-opens it with its value to edit, instead of wiping it.
   const [isEditingInserted, setIsEditingInserted] = useState(false);
+  // MAD: on a computer, type straight into the box on the page instead of a pop-up.
+  const [isInline, setIsInline] = useState(false);
+  const inlineDoneRef = useRef(false);
+
+  useEffect(() => {
+    setIsInline(window.matchMedia('(pointer: fine) and (min-width: 1024px)').matches);
+  }, []);
 
   useEffect(() => {
     if (!showCustomTextModal) {
@@ -146,7 +153,57 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
     setLocalCustomText(field.customText ?? '');
     setErrors(initialErrors);
     setIsEditingInserted(true);
+    inlineDoneRef.current = false;
     setShowCustomTextModal(true);
+  };
+
+  // MAD: open the next empty box on the page, in page order, as Tab does in a normal form.
+  const openNextField = () => {
+    const all = Array.from(document.querySelectorAll<HTMLElement>('.field-card-container'));
+    const index = all.findIndex((el) => el.id === `field-${field.id}`);
+    const next = all.slice(index + 1).find((el) => el.dataset.inserted === 'false');
+
+    if (next) {
+      next.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      next.querySelector<HTMLButtonElement>('button')?.click();
+    }
+  };
+
+  const finishInline = (save: boolean, thenNext = false) => {
+    if (inlineDoneRef.current) {
+      return;
+    }
+
+    inlineDoneRef.current = true;
+
+    const canSave = save && !!localText && !userInputHasErrors;
+
+    if (canSave) {
+      onDialogSignClick();
+    } else {
+      setShowCustomTextModal(false);
+    }
+
+    if (thenNext && (canSave || field.inserted)) {
+      setTimeout(openNextField, 400);
+    }
+  };
+
+  const handleInlineKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) {
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      finishInline(true);
+    } else if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      finishInline(true, true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      finishInline(false);
+    }
   };
 
   // MAD: Return saves; Shift+Return still starts a new line in a tall box.
@@ -161,6 +218,7 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
   };
 
   const onPreSign = () => {
+    inlineDoneRef.current = false;
     setShowCustomTextModal(true);
 
     if (localText && parsedFieldMeta) {
@@ -296,7 +354,28 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
         </DocumentSigningFieldsInserted>
       )}
 
-      <Dialog open={showCustomTextModal} onOpenChange={setShowCustomTextModal}>
+      {showCustomTextModal && isInline && (
+        <textarea
+          id="custom-text"
+          aria-label={parsedFieldMeta?.label ?? _(msg`Text`)}
+          placeholder={parsedFieldMeta?.placeholder ?? parsedFieldMeta?.label ?? ''}
+          className={cn(
+            'absolute inset-0 z-20 h-full w-full resize-none overflow-hidden rounded-[2px] border-2 border-primary bg-white px-2 py-1 text-sm text-foreground leading-snug outline-none',
+            {
+              'border-red-400': userInputHasErrors,
+              'text-center': parsedFieldMeta?.textAlign === 'center',
+              'text-right': parsedFieldMeta?.textAlign === 'right',
+            },
+          )}
+          value={localText}
+          onChange={handleTextChange}
+          onKeyDown={handleInlineKeyDown}
+          onBlur={() => finishInline(true)}
+          autoFocus
+        />
+      )}
+
+      <Dialog open={showCustomTextModal && !isInline} onOpenChange={setShowCustomTextModal}>
         <DialogContent>
           <DialogTitle>{parsedFieldMeta?.label ? parsedFieldMeta?.label : <Trans>Text</Trans>}</DialogTitle>
 
