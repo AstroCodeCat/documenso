@@ -80,11 +80,14 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
 
   const [showCustomTextModal, setShowCustomTextModal] = useState(false);
   const [localText, setLocalCustomText] = useState(parsedFieldMeta?.text ?? '');
+  // MAD: clicking a filled box re-opens it with its value to edit, instead of wiping it.
+  const [isEditingInserted, setIsEditingInserted] = useState(false);
 
   useEffect(() => {
     if (!showCustomTextModal) {
       setLocalCustomText(parsedFieldMeta?.text ?? '');
       setErrors(initialErrors);
+      setIsEditingInserted(false);
     }
   }, [showCustomTextModal]);
 
@@ -117,12 +120,44 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
       }
     }
 
+    const replacing = isEditingInserted;
+    const unchanged = replacing && localText === field.customText;
+
     setShowCustomTextModal(false);
 
+    if (unchanged) {
+      return;
+    }
+
     void executeActionAuthProcedure({
-      onReauthFormSubmit: async (authOptions) => await onSign(authOptions),
+      onReauthFormSubmit: async (authOptions) => {
+        if (replacing) {
+          await removeSignedFieldWithToken({ token: recipient.token, fieldId: field.id });
+        }
+
+        await onSign(authOptions);
+      },
       actionTarget: field.type,
     });
+  };
+
+  // MAD: the container calls onRemove when a filled box is clicked. Open it for editing instead.
+  const onEditInserted = () => {
+    setLocalCustomText(field.customText ?? '');
+    setErrors(initialErrors);
+    setIsEditingInserted(true);
+    setShowCustomTextModal(true);
+  };
+
+  // MAD: Return saves; Shift+Return still starts a new line in a tall box.
+  const handleTextKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+
+      if (localText && !userInputHasErrors) {
+        onDialogSignClick();
+      }
+    }
   };
 
   const onPreSign = () => {
@@ -242,7 +277,13 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
   const charactersRemaining = (parsedFieldMeta?.characterLimit ?? 0) - (localText.length ?? 0);
 
   return (
-    <DocumentSigningFieldContainer field={field} onPreSign={onPreSign} onSign={onSign} onRemove={onRemove} type="Text">
+    <DocumentSigningFieldContainer
+      field={field}
+      onPreSign={onPreSign}
+      onSign={onSign}
+      onRemove={onUnsignField ? onRemove : onEditInserted}
+      type="Text"
+    >
       {isLoading && <DocumentSigningFieldsLoader />}
 
       {!field.inserted && (
@@ -271,6 +312,8 @@ export const DocumentSigningTextField = ({ field, onSignField, onUnsignField }: 
               })}
               value={localText}
               onChange={handleTextChange}
+              onKeyDown={handleTextKeyDown}
+              autoFocus
             />
           </div>
 
